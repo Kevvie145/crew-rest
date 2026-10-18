@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Crew Rest</title>
+<meta name="description" content="Split cruise time into equal crew rest breaks for 3- and 4-pilot crews. Works offline.">
+<meta name="theme-color" content="#0A1017">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap">
+<style>
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+html, body { margin: 0; }
+[hidden] { display: none !important; }
+img { max-width: 100%; }
+
+/* Layout: one phone column. Flight inputs, then the live rest plan, then crew setup.
+   Dark-first for a night cockpit; entered values in cyan, the live "now" state in magenta, cautions in amber. */
+:root {
+  --bg: #0A1017;
+  --panel: #111A24;
+  --panel-2: #172330;
+  --line: #243444;
+  --fg: #E4EBF1;
+  --muted: #8597A8;
+  --entry: #72CFE0;
+  --active: #E489D3;
+  --caution: #F0B45A;
+  --c1: #72CFE0;
+  --c2: #A4B6FF;
+  --c3: #E6C27E;
+  --c4: #8FD8A2;
+  --on-c: #08111A;
+  --font-ui: "B612", Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-data: "B612 Mono", "Roboto Mono", "SFMono-Regular", ui-monospace, "Droid Sans Mono", monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #EDF1F5; --panel: #FFFFFF; --panel-2: #E4EAF0; --line: #CBD5DF;
+    --fg: #0D1824; --muted: #536476; --entry: #08788D; --active: #A12F8A; --caution: #9A5D00;
+    --c1: #0B7E93; --c2: #4A5BC6; --c3: #9A6812; --c4: #2D8549; --on-c: #FFFFFF;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #EDF1F5; --panel: #FFFFFF; --panel-2: #E4EAF0; --line: #CBD5DF;
+  --fg: #0D1824; --muted: #536476; --entry: #08788D; --active: #A12F8A; --caution: #9A5D00;
+  --c1: #0B7E93; --c2: #4A5BC6; --c3: #9A6812; --c4: #2D8549; --on-c: #FFFFFF;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0A1017; --panel: #111A24; --panel-2: #172330; --line: #243444;
+  --fg: #E4EBF1; --muted: #8597A8; --entry: #72CFE0; --active: #E489D3; --caution: #F0B45A;
+  --c1: #72CFE0; --c2: #A4B6FF; --c3: #E6C27E; --c4: #8FD8A2; --on-c: #08111A;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+}
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--entry); outline-offset: 2px; }
+
+.wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  padding-inline: 16px;
+  padding-block: 10px 40px;
+  display: grid;
+  gap: 14px;
+}
+
+/* Top bar */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 6px 2px;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark { width: 28px; height: 28px; flex: none; }
+.word { font-weight: 700; font-size: 15px; letter-spacing: 0.22em; }
+.top-r { display: flex; align-items: center; gap: 8px; }
+.utc {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: var(--entry);
+  letter-spacing: 0.02em;
+}
+.icon-btn, .chip-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  height: 34px;
+  cursor: pointer;
+}
+.icon-btn { width: 34px; display: grid; place-items: center; color: var(--muted); }
+.icon-btn svg { width: 18px; height: 18px; }
+.chip-btn { padding: 0 12px; color: var(--entry); font-weight: 700; font-size: 13px; }
+
+/* Panels */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 14px 16px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ph h2, .lbl, .field label, .zone-lbl {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.note { font-size: 12px; color: var(--caution); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { display: grid; gap: 5px; min-width: 0; }
+.field input, .field select {
+  width: 100%;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  min-height: 46px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 19px;
+  color: var(--entry);
+}
+.field select { font-size: 17px; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
+.field input[aria-invalid="true"] { border-color: var(--caution); color: var(--caution); }
+.field small { font-size: 11px; color: var(--muted); }
+.field input::placeholder { color: var(--muted); opacity: 0.6; }
+input[type="number"] { -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.ldg {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.ldg b { font-family: var(--font-data); font-size: 17px; letter-spacing: 0.02em; color: var(--fg); }
+sup { font-size: 0.62em; margin-left: 1px; color: var(--muted); font-family: var(--font-data); }
+
+/* Segmented controls */
+.seg {
+  position: relative;
+  display: inline-flex;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg input { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.seg label {
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.seg input:checked + label { background: var(--panel); color: var(--entry); box-shadow: 0 0 0 1px var(--line); font-weight: 700; }
+.seg input:focus-visible + label { outline: 2px solid var(--entry); outline-offset: 1px; }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+/* Live switch */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.switch input {
+  appearance: none; -webkit-appearance: none;
+  width: 36px; height: 20px; margin: 0;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.switch input::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s;
+}
+.switch input:checked { background: color-mix(in srgb, var(--active) 25%, var(--panel-2)); border-color: var(--active); }
+.switch input:checked::after { transform: translateX(16px); background: var(--active); }
+.switch input:checked + span { color: var(--active); }
+
+/* Plan */
+.status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--active);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--active); flex: none; animation: blink 2s ease-in-out infinite; }
+.status b { color: var(--active); }
+.status.is-idle { border-color: var(--line); color: var(--muted); }
+.status.is-idle::before { background: var(--muted); animation: none; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+.sum { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.big { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 46px; font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+.big-u { font-size: 13px; color: var(--muted); }
+.sub { margin: -6px 0 0; color: var(--muted); font-size: 13px; }
+.sub b { color: var(--fg); font-family: var(--font-data); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.err {
+  color: var(--caution);
+  border: 1px solid var(--caution);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+/* Timeline */
+.tl { display: grid; gap: 2px; padding-top: 8px; }
+.tl-track { position: relative; height: 34px; border-radius: 6px; background: var(--panel-2); }
+.tl-buf {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--muted) 30%, transparent) 5px 6px);
+}
+.tl-buf.l { left: 0; border-radius: 6px 0 0 6px; }
+.tl-buf.r { right: 0; border-radius: 0 6px 6px 0; }
+.tl-seg {
+  position: absolute; top: 3px; bottom: 3px;
+  background: var(--c);
+  border-radius: 4px;
+  display: grid; place-items: center;
+  color: var(--on-c);
+  font: 700 13px var(--font-data);
+}
+.tl-now { position: absolute; top: -8px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--active); border-radius: 1px; }
+.tl-now::before { content: "NOW"; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font: 700 9px var(--font-data); letter-spacing: 0.1em; color: var(--active); }
+.tl-scale { position: relative; height: 18px; }
+.tl-scale i { position: absolute; top: 0; width: 1px; height: 5px; background: var(--muted); opacity: 0.5; }
+.tl-scale b { position: absolute; top: 5px; transform: translateX(-50%); font: 10px var(--font-data); color: var(--muted); font-weight: 400; }
+.tl-ends { display: flex; justify-content: space-between; gap: 8px; font: 12px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-ends span:last-child { text-align: right; }
+
+.zone-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* Break list */
+.brks { list-style: none; margin: 0; padding: 0; display: grid; }
+.brk {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 6px;
+  border-top: 1px solid var(--line);
+}
+.brk:last-child { border-bottom: 1px solid var(--line); }
+.brk-n {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--c); color: var(--on-c);
+  display: grid; place-items: center;
+  font: 700 13px var(--font-data);
+}
+.brk-who { min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+.brk-who small { display: block; font-size: 11px; color: var(--muted); }
+.brk-who em { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: var(--active); margin-left: 6px; }
+.brk-t, .brk-d { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 15px; white-space: nowrap; }
+.brk-t .dash { color: var(--muted); margin: 0 1px; }
+.brk-d { font-weight: 700; min-width: 3.2em; text-align: right; }
+.brk.is-now { background: color-mix(in srgb, var(--active) 12%, transparent); border-radius: 8px; border-color: transparent; }
+.brk.is-now + .brk { border-top-color: transparent; }
+
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.btn {
+  border: 0; border-radius: 8px;
+  padding: 10px 18px;
+  background: var(--entry); color: var(--bg);
+  font-weight: 700; font-size: 14px;
+  cursor: pointer;
+}
+.btn-ghost { background: transparent; color: var(--entry); border: 1px solid var(--line); }
+.copy-msg { font-size: 13px; color: var(--muted); }
+.share-text {
+  width: 100%; min-height: 8em;
+  font: 12px/1.5 var(--font-data);
+  background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+}
+
+/* Crew order */
+.order { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.order li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 6px;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+.order .pos {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--c); color: var(--on-c);
+  display: grid; place-items: center;
+  font: 700 12px var(--font-data);
+}
+.order input {
+  min-width: 0; width: 100%;
+  background: transparent;
+  border: 0; border-bottom: 1px dashed var(--line);
+  padding: 6px 2px;
+  font-size: 16px;
+}
+.order input:focus { border-bottom-color: var(--entry); outline: none; }
+.mv {
+  width: 36px; height: 36px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel);
+  color: var(--muted);
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.mv svg { width: 14px; height: 14px; }
+.mv:disabled { opacity: 0.35; cursor: default; }
+.hint { margin: 0; font-size: 12px; color: var(--muted); }
+.stack { display: grid; gap: 8px; }
+
+.foot { display: grid; gap: 6px; padding-inline: 2px; font-size: 12px; color: var(--muted); }
+.foot p { margin: 0; max-width: 60ch; }
+.foot-meta { font-family: var(--font-data); font-size: 11px; }
+
+@media (max-width: 360px) {
+  .big { font-size: 40px; }
+  .seg label { padding: 7px 9px; }
+  .brk-t, .brk-d { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status::before { animation: none; }
+  .switch input, .switch input::after { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="top wrap" style="padding-block:10px 0">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <mask id="crescentMask"><rect width="24" height="24" fill="#fff"/><circle cx="14.4" cy="10.2" r="3.9" fill="#000"/></mask>
+      </defs>
+      <g transform="rotate(-90 12 12)" fill="none" stroke-width="2.6" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9" stroke="var(--c1)" stroke-dasharray="13.6 42.95" stroke-dashoffset="-2.6"/>
+        <circle cx="12" cy="12" r="9" stroke="var(--c2)" stroke-dasharray="13.6 42.95" stroke-dashoffset="-21.45"/>
+        <circle cx="12" cy="12" r="9" stroke="var(--c3)" stroke-dasharray="13.6 42.95" stroke-dashoffset="-40.3"/>
+      </g>
+      <circle cx="12" cy="12" r="4.4" fill="var(--fg)" mask="url(#crescentMask)"/>
+    </svg>
+    <span class="word">CREW REST</span>
+  </div>
+  <div class="top-r">
+    <span class="utc" id="utcNow" title="Current UTC from this phone's clock">--:--Z</span>
+    <button id="installBtn" class="chip-btn" type="button" hidden>Install</button>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="Theme: automatic"></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel" aria-labelledby="hFlight">
+    <div class="ph">
+      <h2 id="hFlight">Flight</h2>
+      <span class="note" id="exampleNote">Example flight. Enter yours.</span>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label for="tko">T/O time UTC</label>
+        <input id="tko" inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="HHMM">
+      </div>
+      <div class="field">
+        <label for="ft">Flight time</label>
+        <input id="ft" inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="HHMM">
+      </div>
+      <div class="field">
+        <label for="after">Rest starts</label>
+        <input id="after" type="number" inputmode="numeric" min="0" max="300" step="5">
+        <small>min after T/O</small>
+      </div>
+      <div class="field">
+        <label for="before">Rest ends</label>
+        <input id="before" type="number" inputmode="numeric" min="0" max="300" step="5">
+        <small>min before LDG</small>
+      </div>
+      <div class="field">
+        <label for="orig">Origin</label>
+        <select id="orig"></select>
+      </div>
+      <div class="field">
+        <label for="dest">Destination</label>
+        <select id="dest"></select>
+      </div>
+    </div>
+    <p class="ldg">LDG <b id="ldgOut">--:--Z</b></p>
+  </section>
+
+  <section class="panel" aria-labelledby="hPlan">
+    <div class="ph">
+      <h2 id="hPlan">Rest plan</h2>
+      <label class="switch" for="live"><input type="checkbox" id="live"><span>Live</span></label>
+    </div>
+    <div id="err" class="err" role="alert" hidden></div>
+    <div id="planBody" class="stack" style="gap:14px">
+      <div id="status" class="status" role="status" hidden></div>
+      <div>
+        <div class="sum"><span class="big" id="sumBig">-:--</span><span class="big-u" id="sumUnit">each</span></div>
+        <p class="sub" id="sumSub"></p>
+      </div>
+      <div class="tl" id="timeline" aria-hidden="true"></div>
+      <div class="zone-row">
+        <span class="zone-lbl">Times in</span>
+        <div class="seg" role="radiogroup" aria-label="Show times in">
+          <input type="radio" name="zone" id="zoneZ" value="Z"><label for="zoneZ">UTC</label>
+          <input type="radio" name="zone" id="zoneO" value="O"><label for="zoneO">Origin LT</label>
+          <input type="radio" name="zone" id="zoneD" value="D"><label for="zoneD">Dest LT</label>
+        </div>
+      </div>
+      <ol class="brks" id="brkList"></ol>
+      <div class="actions">
+        <button id="shareBtn" class="btn" type="button" hidden>Share plan</button>
+        <button id="copyBtn" class="btn btn-ghost" type="button">Copy plan</button>
+        <span id="copyMsg" class="copy-msg" role="status"></span>
+      </div>
+      <textarea id="shareText" class="share-text" readonly hidden aria-label="Plan as text"></textarea>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="hCrew">
+    <div class="ph"><h2 id="hCrew">Crew</h2></div>
+    <div class="row">
+      <span class="lbl">Pilots</span>
+      <div class="seg" role="radiogroup" aria-label="Pilots on board">
+        <input type="radio" name="crew" id="crew3" value="3"><label for="crew3">3 pilots</label>
+        <input type="radio" name="crew" id="crew4" value="4"><label for="crew4">4 pilots</label>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Breaks each</span>
+      <div class="seg" role="radiogroup" aria-label="Breaks each">
+        <input type="radio" name="each" id="each1" value="1"><label for="each1">1</label>
+        <input type="radio" name="each" id="each2" value="2"><label for="each2">2</label>
+      </div>
+    </div>
+    <div class="stack">
+      <span class="lbl" id="orderLbl">Rest order</span>
+      <ol class="order" id="order" aria-labelledby="orderLbl"></ol>
+      <p class="hint" id="orderHint">Tap a name to rename it. Arrows change who rests first.</p>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label for="handover">Handover</label>
+        <input id="handover" type="number" inputmode="numeric" min="0" max="60" step="5">
+        <small>min between breaks</small>
+      </div>
+      <div class="field">
+        <label for="round">Round to</label>
+        <select id="round">
+          <option value="1">1 min</option>
+          <option value="5">5 min</option>
+          <option value="10">10 min</option>
+          <option value="15">15 min</option>
+        </select>
+        <small>break start times</small>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>Cruise time between the two buffers is split equally, minus handovers. Check every plan against your company's crew rest rules.</p>
+    <p class="foot-meta"><span id="offlineState">Web preview</span> · v1.0</p>
+  </footer>
+</main>
+
+<script>
+/* Crew Rest core: pure time maths, no DOM. All times are minutes from 00:00Z on the takeoff day. */
+const CrewRestCore = (() => {
+  const mod = (a, n) => ((a % n) + n) % n;
+  const pad = (n) => String(n).padStart(2, '0');
+
+  // Accepts 0330, 330, 03:30, 3.30, 3h30, 03 (hours only), optional trailing Z.
+  function parseTime(s, maxH) {
+    if (s == null) return null;
+    s = String(s).trim().toUpperCase().replace(/\s+/g, '').replace(/Z$/, '');
+    if (!s) return null;
+    let h, m, mt;
+    if ((mt = s.match(/^(\d{1,2})[:.H](\d{2})$/))) { h = +mt[1]; m = +mt[2]; }
+    else if (/^\d{3,4}$/.test(s)) { h = +s.slice(0, -2); m = +s.slice(-2); }
+    else if (/^\d{1,2}$/.test(s)) { h = +s; m = 0; }
+    else return null;
+    if (h > maxH || m > 59) return null;
+    return h * 60 + m;
+  }
+
+  function hhmm(min) {
+    min = mod(Math.round(min), 1440);
+    return pad(Math.floor(min / 60)) + ':' + pad(min % 60);
+  }
+
+  function dur(min) {
+    min = Math.round(min);
+    const sign = min < 0 ? '-' : '';
+    min = Math.abs(min);
+    return sign + Math.floor(min / 60) + ':' + pad(min % 60);
+  }
+
+  // Clock time in a zone, plus days after the takeoff date in that same zone.
+  function clock(t, off, ref) {
+    const v = t + off;
+    return { text: hhmm(v), day: Math.floor(v / 1440) - Math.floor((ref + off) / 1440) };
+  }
+
+  function offsetLabel(m) {
+    if (m === 0) return 'UTC±0';
+    const a = Math.abs(m);
+    return 'UTC' + (m < 0 ? '−' : '+') + Math.floor(a / 60) + (a % 60 ? ':' + pad(a % 60) : '');
+  }
+
+  /*
+   * o.tko      takeoff, minutes after 00:00Z
+   * o.ft       flight time, minutes
+   * o.after    rest starts this many minutes after T/O
+   * o.before   rest ends this many minutes before landing
+   * o.units    names in rest order (pilots for 3-pilot, crews for 4-pilot)
+   * o.each     breaks per unit (1 or 2)
+   * o.handover minutes between consecutive breaks
+   * o.round    break boundaries snap to this many minutes
+   */
+  function plan(o) {
+    const T = o.tko, L = o.tko + o.ft;
+    if (!(o.ft > 0)) return { error: 'Enter the flight time.' };
+    const r = Math.max(1, Math.round(o.round || 1));
+    const h = Math.max(0, o.handover || 0);
+    const S = Math.ceil((T + o.after) / r) * r;
+    const E = Math.floor((L - o.before) / r) * r;
+    const n = o.units.length * o.each;
+    const win = E - S;
+    if (win <= 0) {
+      return { error: 'No time left for rest. The T/O and landing buffers take up the whole flight.', T, L };
+    }
+    const d = (win - (n - 1) * h) / n;
+    if (d < 20) {
+      return { error: `Not enough time for ${n} breaks of at least 20 min. Shorten the buffers or the handover, or give fewer breaks each.`, T, L };
+    }
+    const starts = [];
+    for (let i = 0; i < n; i++) starts.push(i === 0 ? S : Math.round((S + i * (d + h)) / r) * r);
+    const periods = starts.map((s, i) => {
+      const e = i < n - 1 ? starts[i + 1] - h : E;
+      return { i, unit: i % o.units.length, round: Math.floor(i / o.units.length) + 1, start: s, end: e, dur: e - s };
+    });
+    return { T, L, S, E, h, n, win, periods };
+  }
+
+  // Where "now" falls in the flight. nowMin is minutes since 00:00Z today.
+  // Picks whichever of yesterday/today/tomorrow puts the flight closest to now.
+  function locate(res, nowMin) {
+    let best = null;
+    for (const k of [-1, 0, 1]) {
+      const rel = nowMin + 1440 * k;
+      const dist = rel < res.T ? res.T - rel : rel > res.L ? rel - res.L : 0;
+      if (!best || dist < best.dist) best = { rel, dist };
+    }
+    const rel = best.rel;
+    if (rel < res.T) return res.T - rel <= 720 ? { phase: 'pre', rel, left: res.T - rel } : null;
+    if (rel > res.L) return null;
+    for (const p of res.periods) {
+      if (rel >= p.start && rel < p.end) return { phase: 'rest', rel, p, left: p.end - rel };
+    }
+    const next = res.periods.find((p) => p.start > rel);
+    if (next) return { phase: next.i === 0 ? 'climb' : 'handover', rel, next, left: next.start - rel };
+    return { phase: 'done', rel, left: res.L - rel };
+  }
+
+  return { mod, pad, parseTime, hhmm, dur, clock, offsetLabel, plan, locate };
+})();
+if (typeof module !== 'undefined') module.exports = CrewRestCore;
+
+(() => {
+  'use strict';
+  const C = CrewRestCore;
+  const $ = (id) => document.getElementById(id);
+  const KEY = 'crewrest:v1';
+
+  const DEFAULTS = {
+    tko: 210, ft: 830,            // example: T/O 03:30Z, 13:50 flight
+    tkoRaw: '03:30', ftRaw: '13:50',
+    after: 30, before: 60,
+    orig: 540, dest: 120,
+    crew: 3, each: 1, handover: 10, round: 5,
+    units3: [{ n: 'Relief', c: 3 }, { n: 'F/O', c: 2 }, { n: 'Capt', c: 1 }],
+    units4: [{ n: 'Crew B', c: 2 }, { n: 'Crew A', c: 1 }],
+    zone: 'Z', live: false, edited: false, theme: 'auto'
+  };
+
+  const st = load();
+  function load() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY)); } catch (e) { saved = null; }
+    return Object.assign(JSON.parse(JSON.stringify(DEFAULTS)), saved && typeof saved === 'object' ? saved : {});
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* storage unavailable */ }
+  }
+
+  const units = () => (st.crew === 4 ? st.units4 : st.units3);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const unitName = (u) => (u.n && u.n.trim()) || (st.crew === 4 ? 'Crew' : 'Pilot');
+
+  /* ---------- Inputs ---------- */
+  const OFFSETS = [];
+  for (let m = -720; m <= 840; m += 30) OFFSETS.push(m);
+  [345, 525, 765, 825].forEach((m) => OFFSETS.push(m));
+  OFFSETS.sort((a, b) => a - b);
+  ['orig', 'dest'].forEach((id) => {
+    $(id).innerHTML = OFFSETS.map((m) => `<option value="${m}">${C.offsetLabel(m)}</option>`).join('');
+  });
+
+  const inputErr = { tko: false, ft: false, after: false, before: false, handover: false };
+
+  function fillInputs() {
+    $('tko').value = st.tkoRaw;
+    $('ft').value = st.ftRaw;
+    $('after').value = st.after;
+    $('before').value = st.before;
+    $('orig').value = String(st.orig);
+    $('dest').value = String(st.dest);
+    $('handover').value = st.handover;
+    $('round').value = String(st.round);
+    $('crew' + st.crew).checked = true;
+    $('each' + st.each).checked = true;
+    $('zone' + st.zone).checked = true;
+    $('live').checked = !!st.live;
+    $('exampleNote').hidden = !!st.edited;
+  }
+
+  function touched() {
+    if (!st.edited) { st.edited = true; $('exampleNote').hidden = true; }
+  }
+
+  function bindTime(id, maxH) {
+    const el = $(id);
+    el.addEventListener('input', () => {
+      const v = C.parseTime(el.value, maxH);
+      inputErr[id] = v == null;
+      el.setAttribute('aria-invalid', inputErr[id] ? 'true' : 'false');
+      if (v != null) { st[id] = v; st[id + 'Raw'] = el.value; }
+      touched(); save(); renderPlan();
+    });
+    el.addEventListener('blur', () => {
+      const v = C.parseTime(el.value, maxH);
+      if (v != null) { el.value = C.hhmm(v); st[id + 'Raw'] = el.value; save(); }
+    });
+    el.addEventListener('focus', () => { try { el.select(); } catch (e) { /* ignore */ } });
+  }
+  bindTime('tko', 23);
+  bindTime('ft', 23);
+
+  function bindMinutes(id, max) {
+    const el = $(id);
+    el.addEventListener('input', () => {
+      const v = el.value === '' ? NaN : Math.round(Number(el.value));
+      inputErr[id] = !(v >= 0 && v <= max);
+      el.setAttribute('aria-invalid', inputErr[id] ? 'true' : 'false');
+      if (!inputErr[id]) st[id] = v;
+      touched(); save(); renderPlan();
+    });
+  }
+  bindMinutes('after', 300);
+  bindMinutes('before', 300);
+  bindMinutes('handover', 60);
+
+  ['orig', 'dest'].forEach((id) => $(id).addEventListener('change', () => {
+    st[id] = Number($(id).value); touched(); save(); renderPlan();
+  }));
+  $('round').addEventListener('change', () => { st.round = Number($('round').value); save(); renderPlan(); });
+
+  document.querySelectorAll('input[name="crew"]').forEach((r) => r.addEventListener('change', () => {
+    st.crew = Number(r.value); save(); renderOrder(); renderPlan();
+  }));
+  document.querySelectorAll('input[name="each"]').forEach((r) => r.addEventListener('change', () => {
+    st.each = Number(r.value); save(); renderPlan();
+  }));
+  document.querySelectorAll('input[name="zone"]').forEach((r) => r.addEventListener('change', () => {
+    st.zone = r.value; save(); renderPlan();
+  }));
+  $('live').addEventListener('change', () => { st.live = $('live').checked; save(); renderPlan(); });
+
+  /* ---------- Crew order ---------- */
+  const UP = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 9.5 7 5l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const DOWN = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 4.5 7 9l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const ORD = ['1st', '2nd', '3rd', '4th'];
+
+  function renderOrder() {
+    const list = units();
+    $('orderHint').textContent = st.crew === 4
+      ? 'Each crew rests as a pair. Tap a name to rename it. Arrows change which crew rests first.'
+      : 'Tap a name to rename it. Arrows change who rests first.';
+    $('order').innerHTML = list.map((u, i) => `
+      <li style="--c:var(--c${u.c})">
+        <span class="pos">${i + 1}</span>
+        <input id="name${i}" value="${esc(u.n)}" maxlength="18" autocomplete="off" aria-label="${ORD[i]} to rest">
+        <button class="mv" type="button" data-i="${i}" data-d="-1" aria-label="Rest earlier" ${i === 0 ? 'disabled' : ''}>${UP}</button>
+        <button class="mv" type="button" data-i="${i}" data-d="1" aria-label="Rest later" ${i === list.length - 1 ? 'disabled' : ''}>${DOWN}</button>
+      </li>`).join('');
+    list.forEach((u, i) => {
+      $('name' + i).addEventListener('input', (e) => { u.n = e.target.value; save(); renderPlan(); });
+    });
+  }
+  $('order').addEventListener('click', (e) => {
+    const b = e.target.closest('.mv');
+    if (!b || b.disabled) return;
+    const list = units();
+    const i = Number(b.dataset.i), j = i + Number(b.dataset.d);
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    save(); renderOrder(); renderPlan();
+    const again = $('order').querySelector(`.mv[data-i="${j}"][data-d="${b.dataset.d}"]`) || $('order').querySelector(`.mv[data-i="${j}"]`);
+    if (again && !again.disabled) again.focus();
+  });
+
+  /* ---------- Plan ---------- */
+  let lastText = '';
+
+  function zoneOffset() { return st.zone === 'O' ? st.orig : st.zone === 'D' ? st.dest : 0; }
+
+  function fmt(t, off, ref, html) {
+    const c = C.clock(t, off, ref);
+    const z = off === 0 && st.zone === 'Z' ? 'Z' : '';
+    if (!html) return c.text + z + (c.day ? `+${c.day}` : '');
+    return `${c.text}${z}${c.day ? `<sup>+${c.day}</sup>` : ''}`;
+  }
+  const fmtZ = (t, ref) => { const c = C.clock(t, 0, ref); return c.text + 'Z' + (c.day ? `+${c.day}` : ''); };
+  const fmtZh = (t, ref) => { const c = C.clock(t, 0, ref); return `${c.text}Z${c.day ? `<sup>+${c.day}</sup>` : ''}`; };
+
+  function nowMinutes() {
+    const d = new Date();
+    return d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60;
+  }
+
+  function renderPlan() {
+    const ldg = $('ldgOut');
+    if (!inputErr.tko && !inputErr.ft) ldg.innerHTML = fmtZh(st.tko + st.ft, st.tko);
+    else ldg.textContent = '--:--Z';
+
+    const bad = [];
+    if (inputErr.tko) bad.push('Check the T/O time. Type it as HHMM, for example 0330.');
+    if (inputErr.ft) bad.push('Check the flight time. Type it as HHMM, for example 1350.');
+    if (inputErr.after || inputErr.before) bad.push('Rest buffers must be 0 to 300 minutes.');
+    if (inputErr.handover) bad.push('Handover must be 0 to 60 minutes.');
+
+    const list = units();
+    const res = bad.length ? null : C.plan({
+      tko: st.tko, ft: st.ft, after: st.after, before: st.before,
+      units: list.map(unitName), each: st.each, handover: st.handover, round: st.round
+    });
+
+    const err = bad.length ? bad.join(' ') : res.error;
+    $('err').hidden = !err;
+    $('planBody').hidden = !!err;
+    if (err) { $('err').textContent = err; lastText = ''; return; }
+
+    const off = zoneOffset();
+    const T = res.T, L = res.L;
+    const durs = res.periods.map((p) => p.dur);
+    const dmin = Math.min(...durs), dmax = Math.max(...durs);
+    $('sumBig').textContent = C.dur(dmin);
+    $('sumUnit').textContent = dmin === dmax ? 'each' : `to ${C.dur(dmax)} each`;
+    $('sumSub').innerHTML = `${res.n} breaks in a rest window of <b>${fmt(res.S, off, T, true)}</b> to <b>${fmt(res.E, off, T, true)}</b> (${C.dur(res.win)})` +
+      (res.h ? `, with ${res.h} min handovers` : '');
+
+    // Live status
+    let here = null;
+    if (st.live) {
+      here = C.locate(res, nowMinutes());
+      const s = $('status');
+      s.hidden = false;
+      s.classList.toggle('is-idle', !here);
+      const nm = (p) => esc(unitName(list[p.unit]));
+      let msg;
+      if (!here) msg = 'No flight in progress near the current time.';
+      else if (here.phase === 'pre') msg = `T/O in <b>${C.dur(here.left)}</b>`;
+      else if (here.phase === 'climb') msg = `First break, <b>${nm(here.next)}</b>, starts in ${C.dur(here.left)}`;
+      else if (here.phase === 'rest') msg = `<b>${nm(here.p)}</b> on break, ${C.dur(here.left)} left`;
+      else if (here.phase === 'handover') msg = `Handover. <b>${nm(here.next)}</b> rests in ${C.dur(here.left)}`;
+      else msg = `Rest complete. LDG in <b>${C.dur(here.left)}</b>`;
+      s.innerHTML = `<span>${msg}</span>`;
+    } else {
+      $('status').hidden = true;
+    }
+
+    // Timeline
+    const span = L - T;
+    const pct = (t) => (((t - T) / span) * 100).toFixed(3) + '%';
+    let tl = '<div class="tl-track">';
+    tl += `<div class="tl-buf l" style="width:${pct(res.S)}"></div>`;
+    tl += `<div class="tl-buf r" style="left:${pct(res.E)}"></div>`;
+    res.periods.forEach((p) => {
+      const w = (p.dur / span) * 100;
+      tl += `<div class="tl-seg" style="left:${pct(p.start)};width:${w.toFixed(3)}%;--c:var(--c${list[p.unit].c})">${w > 5 ? p.i + 1 : ''}</div>`;
+    });
+    if (here && here.rel >= T && here.rel <= L) tl += `<div class="tl-now" style="left:${pct(here.rel)}"></div>`;
+    tl += '</div><div class="tl-scale">';
+    const hours = Math.floor(span / 60);
+    const step = hours > 12 ? 2 : 1;
+    for (let h = 1; h <= hours; h++) {
+      const x = ((h * 60) / span) * 100;
+      if (x >= 99.5) break;
+      tl += `<i style="left:${x.toFixed(3)}%"></i>`;
+      if (h % (step * 2) === 0 && x > 6 && x < 94) tl += `<b style="left:${x.toFixed(3)}%">${h}h</b>`;
+    }
+    tl += `</div><div class="tl-ends"><span>T/O ${fmt(T, off, T, true)}</span><span>LDG ${fmt(L, off, T, true)}</span></div>`;
+    $('timeline').innerHTML = tl;
+
+    // Break list
+    $('brkList').innerHTML = res.periods.map((p) => {
+      const u = list[p.unit];
+      const now = here && here.phase === 'rest' && here.p.i === p.i;
+      const which = st.each > 1 ? `<small>${p.round === 1 ? '1st' : '2nd'} break</small>` : '';
+      return `<li class="brk${now ? ' is-now' : ''}" style="--c:var(--c${u.c})">
+        <span class="brk-n">${p.i + 1}</span>
+        <span class="brk-who">${esc(unitName(u))}${now ? '<em>NOW</em>' : ''}${which}</span>
+        <span class="brk-t">${fmt(p.start, off, T, true)}<span class="dash">–</span>${fmt(p.end, off, T, true)}</span>
+        <span class="brk-d">${C.dur(p.dur)}</span>
+      </li>`;
+    }).join('');
+
+    // Plain-text version for sharing
+    const lt = st.zone === 'O' ? ['origin LT', st.orig] : st.zone === 'D' ? ['dest LT', st.dest] : null;
+    const w = Math.max(...list.map((u) => unitName(u).length));
+    const lines = [
+      'CREW REST PLAN',
+      `T/O ${fmtZ(T, T)}  FLT ${C.dur(st.ft)}  LDG ${fmtZ(L, T)}`,
+      `Rest ${fmtZ(res.S, T)} to ${fmtZ(res.E, T)} (${C.dur(res.win)})` + (res.h ? `, ${res.h} min handovers` : ''),
+      ''
+    ];
+    res.periods.forEach((p) => {
+      let line = `${p.i + 1}. ${unitName(list[p.unit]).padEnd(w)}  ${fmtZ(p.start, T)}-${fmtZ(p.end, T)}  ${C.dur(p.dur)}`;
+      if (lt) {
+        const a = C.clock(p.start, lt[1], T), b = C.clock(p.end, lt[1], T);
+        line += `  (${a.text}${a.day ? '+' + a.day : ''}-${b.text}${b.day ? '+' + b.day : ''} ${lt[0]} ${C.offsetLabel(lt[1])})`;
+      }
+      lines.push(line);
+    });
+    lastText = lines.join('\n');
+    if (!$('shareText').hidden) $('shareText').value = lastText;
+  }
+
+  /* ---------- Share / copy ---------- */
+  function flash(msg) {
+    $('copyMsg').textContent = msg;
+    clearTimeout(flash.t);
+    flash.t = setTimeout(() => { $('copyMsg').textContent = ''; }, 2500);
+  }
+  function showText() {
+    const ta = $('shareText');
+    ta.hidden = false;
+    ta.value = lastText;
+    ta.focus();
+    ta.select();
+  }
+  $('copyBtn').addEventListener('click', () => {
+    if (!lastText) return;
+    try {
+      navigator.clipboard.writeText(lastText).then(() => flash('Copied'), () => { showText(); flash('Select the text below to copy it'); });
+    } catch (e) { showText(); flash('Select the text below to copy it'); }
+  });
+  if (navigator.share && window.top === window.self) {
+    $('shareBtn').hidden = false;
+    $('shareBtn').addEventListener('click', () => {
+      if (!lastText) return;
+      navigator.share({ title: 'Crew rest plan', text: lastText }).catch((e) => {
+        if (e && e.name !== 'AbortError') { showText(); flash('Sharing is not available. Copy the text below.'); }
+      });
+    });
+  }
+
+  /* ---------- Theme ---------- */
+  const THEME_ICONS = {
+    auto: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg>',
+    dark: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" fill="currentColor"/></svg>',
+    light: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></g></svg>'
+  };
+  const THEME_NAMES = { auto: 'automatic', dark: 'night', light: 'day' };
+  function applyTheme(initial) {
+    const root = document.documentElement;
+    if (st.theme === 'dark' || st.theme === 'light') root.setAttribute('data-theme', st.theme);
+    else if (!initial) root.removeAttribute('data-theme');
+    $('themeBtn').innerHTML = THEME_ICONS[st.theme] || THEME_ICONS.auto;
+    $('themeBtn').setAttribute('aria-label', `Theme: ${THEME_NAMES[st.theme] || 'automatic'}. Tap to change.`);
+    const meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (meta) meta.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim() || '#0A1017');
+  }
+  $('themeBtn').addEventListener('click', () => {
+    st.theme = st.theme === 'auto' ? 'dark' : st.theme === 'dark' ? 'light' : 'auto';
+    save(); applyTheme(false);
+  });
+
+  /* ---------- Clock ---------- */
+  function tickClock() {
+    const d = new Date();
+    $('utcNow').textContent = C.pad(d.getUTCHours()) + ':' + C.pad(d.getUTCMinutes()) + 'Z';
+  }
+  function tick() { tickClock(); if (st.live) renderPlan(); }
+  setInterval(tick, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+
+  /* ---------- Install + offline ---------- */
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installEvt = e;
+    $('installBtn').hidden = false;
+  });
+  $('installBtn').addEventListener('click', async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch (e) { /* ignore */ }
+    installEvt = null;
+    $('installBtn').hidden = true;
+  });
+  window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
+
+  const isApp = !!document.querySelector('link[rel="manifest"]');
+  if (isApp && 'serviceWorker' in navigator) {
+    $('offlineState').textContent = 'Saving for offline use…';
+    navigator.serviceWorker.register('sw.js')
+      .then(() => navigator.serviceWorker.ready)
+      .then(() => { $('offlineState').textContent = 'Ready offline'; })
+      .catch(() => { $('offlineState').textContent = 'Offline mode unavailable in this browser'; });
+  } else if (isApp) {
+    $('offlineState').textContent = 'Offline mode unavailable in this browser';
+  }
+
+  /* ---------- Start ---------- */
+  fillInputs();
+  applyTheme(true);
+  tickClock();
+  renderOrder();
+  renderPlan();
+})();
+</script>
+</body>
+</html>
